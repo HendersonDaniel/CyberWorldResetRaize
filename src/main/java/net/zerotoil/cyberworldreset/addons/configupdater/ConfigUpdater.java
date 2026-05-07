@@ -41,7 +41,11 @@ public class ConfigUpdater {
     }
 
     private static int getVersion() {
-        return Integer.parseInt(Bukkit.getBukkitVersion().split("-")[0].split("\\.")[1]);
+        String minecraftVersion = Bukkit.getBukkitVersion().split("-")[0];
+        String[] parts = minecraftVersion.split("\\.");
+        int major = Integer.parseInt(parts[0]);
+        if (major == 1 && parts.length > 1) return Integer.parseInt(parts[1]);
+        return major;
     }
 
     private static String replace(String string) {

@@ -52,10 +52,6 @@ public final class CyberWorldReset extends JavaPlugin {
     @Override
     public void onEnable() {
 
-        if (getVersion() > 21) {
-            Bukkit.getLogger().severe("CWR v" + getDescription().getVersion() + " does not support MC version 1.21 and newer. Please update!");
-            return;
-        }
         if (getVersion() < 8) {
             Bukkit.getLogger().severe("CWR v" + getDescription().getVersion() + " does not support Minecraft versions older than 1.8");
             return;
@@ -182,7 +178,11 @@ public final class CyberWorldReset extends JavaPlugin {
     }
 
     public int getVersion() {
-        return Integer.parseInt(Bukkit.getBukkitVersion().split("-")[0].split("\\.")[1]);
+        String minecraftVersion = Bukkit.getBukkitVersion().split("-")[0];
+        String[] parts = minecraftVersion.split("\\.");
+        int major = Integer.parseInt(parts[0]);
+        if (major == 1 && parts.length > 1) return Integer.parseInt(parts[1]);
+        return major;
     }
 
     public void addEvent() {
