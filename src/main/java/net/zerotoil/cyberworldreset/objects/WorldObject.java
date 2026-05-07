@@ -17,6 +17,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.*;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -27,6 +28,9 @@ public class WorldObject {
     private boolean lastSaved;
     private String worldName; // req
     private World world; // req, based off of worldName
+    private File worldFolder;
+    private Object worldKey;
+    private String paperWorldYml;
     private List<String> time; // not req
     private List<String> message; // not req
     private Long seed; // not req, use default
@@ -81,6 +85,9 @@ public class WorldObject {
         time = null;
         message = null;
         assert world != null;
+        worldFolder = world.getWorldFolder();
+        worldKey = resolveWorldKey(world);
+        paperWorldYml = null;
         seed = world.getSeed();
         environment = world.getEnvironment();
         safeWorldEnabled = false;
@@ -136,6 +143,11 @@ public class WorldObject {
             return false;
         }
 
+        World currentWorld = getWorld();
+        if (currentWorld == null) return regenFail("world-not-exist", sender);
+        worldFolder = currentWorld.getWorldFolder();
+        worldKey = resolveWorldKey(currentWorld);
+
         resetting = true;
         sendCommands(true);
         tpPlayersAway();
@@ -143,15 +155,18 @@ public class WorldObject {
         // default world check
         if (Objects.equals(main.worldUtils().getLevelName(), worldName)) return regenFail("default-world-fail", sender);
 
+        if (main.config().isSaveWorldBeforeReset()) currentWorld.save();
+
         // can the world unload?
-        if (!Bukkit.unloadWorld(worldName, false)) return regenFail("unload-failed", sender);
+        if (!Bukkit.unloadWorld(currentWorld, false)) return regenFail("unload-failed", sender);
 
         // save before reset
-        if (main.config().isSaveWorldBeforeReset() && !saveWorld(null, false)) regenFail(null, null);
+        if (main.config().isSaveWorldBeforeReset() && !zipSavedWorld(null, worldFolder, false)) return regenFail(null, null);
 
         // deletes old world files
         try {
-            FileUtils.deleteDirectory(new File(main.getDataFolder().getParentFile().getParentFile(), worldName));
+            cachePaperWorldYml(worldFolder);
+            FileUtils.deleteDirectory(getWorldFolderForReset());
         } catch (Exception e) {
             return regenFail("file-delete-failed", sender);
         }
@@ -173,7 +188,7 @@ public class WorldObject {
 
                 // should spawn chunks load?
                 // creates world
-                WorldCreator finalWorld = new WorldCreator(worldName);
+                WorldCreator finalWorld = createWorldCreator();
                 finalWorld.environment(environment);
 
                 if (!lastSaved) {
@@ -198,7 +213,14 @@ public class WorldObject {
                 main.logger("&cFailed to set the generator " + generator + ". Please check the name. Using default generator.");
             }
         }
-        finalWorld.createWorld();
+        restorePaperWorldYml();
+        World createdWorld = finalWorld.createWorld();
+        if (createdWorld == null) {
+            regenFail("world-create-failed", sender);
+            return;
+        }
+        worldFolder = createdWorld.getWorldFolder();
+        worldKey = resolveWorldKey(createdWorld);
 
         if (main.isMultiverseEnabled()) {
             try {
@@ -517,33 +539,44 @@ public class WorldObject {
         main.lang().getMsg("saving-world").send(player, true, new String[]{"world"}, new String[]{getWorldName()});
         File savedWorlds = new File(main.getDataFolder(),"saved_worlds");
         if (!savedWorlds.exists()) savedWorlds.mkdirs();
+        World currentWorld = getWorld();
+        if (currentWorld == null) {
+            main.lang().getMsg("save-failed").send(player, true, new String[]{"world"}, new String[]{worldName});
+            return false;
+        }
+        worldFolder = currentWorld.getWorldFolder();
+        worldKey = resolveWorldKey(currentWorld);
         if (saveWorld) {
-            getWorld().save();
+            currentWorld.save();
             (new BukkitRunnable() {
                 @Override
                 public void run() {
-                    zipSavedWorld(player);
+                    zipSavedWorld(player, worldFolder, true);
                 }
             }).runTaskLater(main, 20L * Math.round(20 / Lag.getTPS()));
             return true;
         }
-        else return zipSavedWorld(player);
+        else return zipSavedWorld(player, worldFolder, true);
     }
 
-    private boolean zipSavedWorld(Player player) {
-        Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
-            try {
-                main.zipUtils().zip(worldName);
-                main.lang().getMsg("save-success").send(player, true, new String[]{"world"}, new String[]{worldName});
-            } catch (Exception e) {
-                main.lang().getMsg("save-failed").send(player, true, new String[]{"world"}, new String[]{worldName});
-                e.printStackTrace();
-            }
-        });
-        return true;
+    private boolean zipSavedWorld(Player player, File sourceFolder, boolean async) {
+        if (async) {
+            Bukkit.getScheduler().runTaskAsynchronously(main, () -> zipSavedWorld(player, sourceFolder, false));
+            return true;
+        }
+        try {
+            main.zipUtils().zip(worldName, sourceFolder);
+            main.lang().getMsg("save-success").send(player, true, new String[]{"world"}, new String[]{worldName});
+            return true;
+        } catch (Exception e) {
+            main.lang().getMsg("save-failed").send(player, true, new String[]{"world"}, new String[]{worldName});
+            e.printStackTrace();
+            return false;
+        }
     }
 
     public void rollbackWorld(Player player, WorldCreator finalWorld){
+        File targetFolder = getWorldFolderForReset();
 
         Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
             main.lang().getMsg("rolling-back-world").send(player, true, new String[]{"world"}, new String[]{worldName});
@@ -556,7 +589,7 @@ public class WorldObject {
             }
 
             try {
-                main.zipUtils().unZip(worldSave);
+                main.zipUtils().unZip(worldSave, targetFolder);
                 main.lang().getMsg("rollback-success").send(player, true, new String[]{"world"}, new String[]{worldName});
                 Bukkit.getScheduler().runTask(main, () -> continueRegen(player, finalWorld));
             } catch (IOException e) {
@@ -565,6 +598,59 @@ public class WorldObject {
                 regenFail(null, player);
             }
         });
+    }
+
+    private File getWorldFolderForReset() {
+        if (worldFolder != null) return worldFolder;
+        return new File(Bukkit.getWorldContainer(), worldName);
+    }
+
+    private Object resolveWorldKey(World targetWorld) {
+        try {
+            Method getKey = World.class.getMethod("getKey");
+            return getKey.invoke(targetWorld);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private WorldCreator createWorldCreator() {
+        if (worldKey == null) return new WorldCreator(worldName);
+        try {
+            Class<?> keyClass = Class.forName("org.bukkit.NamespacedKey");
+            Method ofNameAndKey = WorldCreator.class.getMethod("ofNameAndKey", String.class, keyClass);
+            return (WorldCreator) ofNameAndKey.invoke(null, worldName, worldKey);
+        } catch (Exception ignored) {
+            try {
+                Class<?> keyClass = Class.forName("org.bukkit.NamespacedKey");
+                Constructor<WorldCreator> constructor = WorldCreator.class.getConstructor(String.class, keyClass);
+                return constructor.newInstance(worldName, worldKey);
+            } catch (Exception ignoredAgain) {
+                return new WorldCreator(worldName);
+            }
+        }
+    }
+
+    private void cachePaperWorldYml(File sourceFolder) {
+        paperWorldYml = null;
+        File paperWorldFile = new File(sourceFolder, "paper-world.yml");
+        if (!paperWorldFile.exists()) return;
+        try {
+            paperWorldYml = FileUtils.readFileToString(paperWorldFile, "UTF-8");
+        } catch (IOException e) {
+            main.logger("&cFailed to preserve paper-world.yml for " + worldName + ".");
+        }
+    }
+
+    private void restorePaperWorldYml() {
+        if (paperWorldYml == null) return;
+        try {
+            File targetFolder = getWorldFolderForReset();
+            FileUtils.forceMkdir(targetFolder);
+            FileUtils.writeStringToFile(new File(targetFolder, "paper-world.yml"), paperWorldYml, "UTF-8");
+        } catch (IOException e) {
+            main.logger("&cFailed to restore paper-world.yml for " + worldName + ".");
+        }
     }
 
     public void loadTimedResets() {
