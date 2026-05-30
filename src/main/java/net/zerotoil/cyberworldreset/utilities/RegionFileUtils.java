@@ -27,32 +27,59 @@ public class RegionFileUtils {
     }
 
     public boolean saveRegion(Player sender, String worldName, int regionX, int regionZ) {
+        String key = regionKey(worldName, regionX, regionZ);
+        if (resettingRegions.contains(key)) {
+            main.lang().getMsg("region-already-resetting").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
+            return false;
+        }
+
         World world = Bukkit.getWorld(worldName);
         if (world == null) {
             main.lang().getMsg("world-not-exist").send(sender, true, new String[]{"world"}, new String[]{worldName});
             return false;
         }
 
+        if (worldName.equalsIgnoreCase(main.worldUtils().getLevelName())) {
+            main.lang().getMsg("default-world-fail").send(sender, true, new String[]{"world"}, new String[]{worldName});
+            return false;
+        }
+
+        WorldObject setup = main.worlds().getWorld(worldName);
+        if (!preparePlayers(sender, setup, world, key)) return false;
+
         main.lang().getMsg("saving-region").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
+        resettingRegions.add(key);
         world.save();
         File worldFolder = world.getWorldFolder();
+        World.Environment environment = world.getEnvironment();
+        String generator = setup == null ? null : setup.getGenerator();
+
+        if (!Bukkit.unloadWorld(world, false)) {
+            finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-save-failed");
+            main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
+            return false;
+        }
 
         Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
+            File backupFolder = null;
             try {
-                File backupFolder = createBackupFolder(worldName, regionX, regionZ);
+                backupFolder = createBackupFolder(worldName, regionX, regionZ);
+                main.logger("&7Saving MCA backup to &e" + backupFolder.getPath() + "&7.");
                 int savedFiles = copyRegionFiles(worldFolder, backupFolder, regionX, regionZ);
                 if (savedFiles == 0) FileUtils.deleteQuietly(backupFolder);
                 Bukkit.getScheduler().runTask(main, () -> {
                     if (savedFiles == 0) {
+                        finishRegionOperationCleanup(worldName, key, setup, environment, generator);
                         main.lang().getMsg("region-save-empty").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
                     } else {
+                        finishRegionOperationCleanup(worldName, key, setup, environment, generator);
                         main.lang().getMsg("region-save-success").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
                     }
                 });
             } catch (IOException e) {
                 e.printStackTrace();
                 Bukkit.getScheduler().runTask(main, () ->
-                        main.lang().getMsg("region-save-failed").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ)));
+                        finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-save-failed"));
             }
         });
         return true;
@@ -92,18 +119,19 @@ public class RegionFileUtils {
         currentWorld.save();
 
         if (!Bukkit.unloadWorld(currentWorld, false)) {
-            finishResetFailure(sender, worldName, regionX, regionZ, key, environment, generator);
+            finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-reset-failed");
             main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
             return false;
         }
 
         Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
             try {
+                main.logger("&7Restoring MCA backup from &e" + latestBackup.getPath() + "&7.");
                 restoreRegionFiles(worldFolder, latestBackup, regionX, regionZ);
                 Bukkit.getScheduler().runTask(main, () -> finishResetSuccess(sender, worldName, regionX, regionZ, key, setup, environment, generator));
             } catch (IOException e) {
                 e.printStackTrace();
-                Bukkit.getScheduler().runTask(main, () -> finishResetFailure(sender, worldName, regionX, regionZ, key, environment, generator));
+                Bukkit.getScheduler().runTask(main, () -> finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-reset-failed"));
             }
         });
         return true;
@@ -152,7 +180,7 @@ public class RegionFileUtils {
         WorldCreator creator = createWorldCreator(worldName, environment, generator);
         World world = creator.createWorld();
         if (world == null) {
-            finishResetFailure(sender, worldName, regionX, regionZ, key, environment, generator);
+            finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-reset-failed");
             main.lang().getMsg("world-create-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
             return;
         }
@@ -170,16 +198,26 @@ public class RegionFileUtils {
         resettingRegions.remove(key);
     }
 
-    private void finishResetFailure(Player sender, String worldName, int regionX, int regionZ, String key,
-                                    World.Environment environment, String generator) {
+    private void finishRegionOperationFailure(Player sender, String worldName, int regionX, int regionZ, String key,
+                                              WorldObject setup, World.Environment environment, String generator, String messageKey) {
+        finishRegionOperationCleanup(worldName, key, setup, environment, generator);
+        main.lang().getMsg(messageKey).send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
+    }
+
+    private void finishRegionOperationCleanup(String worldName, String key, WorldObject setup,
+                                              World.Environment environment, String generator) {
         if (Bukkit.getWorld(worldName) == null) {
             createWorldCreator(worldName, environment, generator).createWorld();
         }
         main.onWorldChange().removeClosedWorld(worldName);
         if (!main.onJoin().isServerOpen()) main.onJoin().setServerOpen(true);
-        returnPlayers.remove(key);
+        World world = Bukkit.getWorld(worldName);
+        if (setup != null && setup.isSafeWorldEnabled() && setup.getSafeWorldDelay() != -1 && world != null) {
+            Bukkit.getScheduler().runTaskLater(main, () -> teleportPlayersBack(world, key), 20L * setup.getSafeWorldDelay());
+        } else {
+            returnPlayers.remove(key);
+        }
         resettingRegions.remove(key);
-        main.lang().getMsg("region-reset-failed").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
     }
 
     private WorldCreator createWorldCreator(String worldName, World.Environment environment, String generator) {
@@ -244,7 +282,7 @@ public class RegionFileUtils {
         if (files == null || files.length == 0) return null;
         File latest = files[0];
         for (File file : files) {
-            if (file.lastModified() > latest.lastModified()) latest = file;
+            if (file.getName().compareTo(latest.getName()) > 0) latest = file;
         }
         return latest;
     }
