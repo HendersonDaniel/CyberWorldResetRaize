@@ -45,6 +45,12 @@ public class CWRTabComplete implements TabCompleter {
             args0.add("regen");
         }
         if (player.hasPermission(aPrefix + "save")) args0.add("save");
+        if (player.hasPermission(aPrefix + "region.save")) {
+            args0.add("savemca");
+        }
+        if (player.hasPermission(aPrefix + "region.reset")) {
+            args0.add("resetmca");
+        }
         if (main.langUtils().hasParentPerm(player, aPrefix + "edit")) args0.add("edit");
         if (player.hasPermission(aPrefix + "info")) args0.add("info");
         if (player.hasPermission(aPrefix + "list")) args0.add("list");
@@ -70,7 +76,8 @@ public class CWRTabComplete implements TabCompleter {
 
 
             if (cmdReq(args[0], args0, "reset") || cmdReq(args[0], args0, "save") || cmdReq(args[0], args0, "edit")
-                    || cmdReq(args[0], args0, "info") || cmdReq(args[0], args0, "regen")) {
+                    || cmdReq(args[0], args0, "info") || cmdReq(args[0], args0, "regen") || cmdReq(args[0], args0, "savemca")
+                    || cmdReq(args[0], args0, "resetmca")) {
                 args1.addAll(main.worlds().getWorlds().keySet());
             }
 
@@ -78,6 +85,28 @@ public class CWRTabComplete implements TabCompleter {
             Collections.sort(args1Comp);
             return args1Comp;
 
+        }
+
+        if (args.length == 3 && args[0].matches("(?i)savemca|resetmca")) {
+            List<String> args2 = new ArrayList<>();
+            List<String> args2Comp = new ArrayList<>();
+            args2.add("<regionX>");
+            if (player.getWorld().getName().equalsIgnoreCase(args[1]))
+                args2.add(String.valueOf(Math.floorDiv(player.getLocation().getBlockX(), 512)));
+            StringUtil.copyPartialMatches(args[2], args2, args2Comp);
+            Collections.sort(args2Comp);
+            return args2Comp;
+        }
+
+        if (args.length == 4 && args[0].matches("(?i)savemca|resetmca")) {
+            List<String> args3 = new ArrayList<>();
+            List<String> args3Comp = new ArrayList<>();
+            args3.add("<regionZ>");
+            if (player.getWorld().getName().equalsIgnoreCase(args[1]))
+                args3.add(String.valueOf(Math.floorDiv(player.getLocation().getBlockZ(), 512)));
+            StringUtil.copyPartialMatches(args[3], args3, args3Comp);
+            Collections.sort(args3Comp);
+            return args3Comp;
         }
 
         if (args[0].equalsIgnoreCase("edit")) {

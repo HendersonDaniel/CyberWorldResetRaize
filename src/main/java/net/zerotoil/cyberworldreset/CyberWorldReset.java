@@ -32,6 +32,7 @@ public final class CyberWorldReset extends JavaPlugin {
     private LangUtils langUtils;
     private WorldUtils worldUtils;
     private ZipUtils zipUtils;
+    private RegionFileUtils regionFileUtils;
 
     private OnJoin onJoin;
     private OnWorldChange onWorldChange;
@@ -113,6 +114,7 @@ public final class CyberWorldReset extends JavaPlugin {
         langUtils = new LangUtils(this);
         worldUtils = new WorldUtils();
         zipUtils = new ZipUtils(this);
+        regionFileUtils = new RegionFileUtils(this);
     }
 
     public void loadCache() {
@@ -218,6 +220,9 @@ public final class CyberWorldReset extends JavaPlugin {
     }
     public ZipUtils zipUtils() {
         return zipUtils;
+    }
+    public RegionFileUtils regionFileUtils() {
+        return regionFileUtils;
     }
 
     public OnJoin onJoin() {

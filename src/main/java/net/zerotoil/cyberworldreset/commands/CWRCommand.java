@@ -18,11 +18,12 @@ public class CWRCommand implements CommandExecutor {
     private List<String> consoleCmds;
 
     public HashMap<Player, String> confirmation = new HashMap<>();
+    public HashMap<Player, String> regionConfirmation = new HashMap<>();
 
     public CWRCommand(CyberWorldReset main) {
         this.main = main;
         main.getCommand("cwr").setExecutor(this);
-        consoleCmds = Arrays.asList("about", "reload", "regen", "reset");
+        consoleCmds = Arrays.asList("about", "reload", "regen", "reset", "savemca", "resetmca");
     }
 
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
@@ -36,9 +37,7 @@ public class CWRCommand implements CommandExecutor {
         String uuid;
 
         // console check
-        if (!(sender instanceof Player) && (!consoleCmds.contains(args[0].toLowerCase()) ||
-                ((args[0].equalsIgnoreCase("regen") || args[0].equalsIgnoreCase("reset"))
-                        && args.length != 2))) {
+        if (!(sender instanceof Player) && !consoleCanUse(args)) {
             Bukkit.getLogger().warning("Console cannot use this command!");
             return true;
         } else if (!(sender instanceof Player)) {
@@ -106,6 +105,13 @@ public class CWRCommand implements CommandExecutor {
 
     }
 
+    private boolean consoleCanUse(String[] args) {
+        if (!consoleCmds.contains(args[0].toLowerCase())) return false;
+        if (args[0].matches("(?i)regen|regenerate|reset")) return args.length == 2;
+        if (args[0].matches("(?i)savemca|resetmca")) return args.length == 4;
+        return args.length == 1;
+    }
+
     private String convertToString(String[] args) {
         String message = args[3];
         if (args.length >= 5) for (int i = 4; i < args.length; i++) message += " " + args[i];
@@ -131,7 +137,7 @@ public class CWRCommand implements CommandExecutor {
             if (noPlayerPerm(player, "admin.reload")) return true;
 
             main.lang().getMsg("reloading").send(player, true, new String[]{}, new String[]{});
-            if (main.worlds().isWorldResetting()) {
+            if (main.worlds().isWorldResetting() || main.regionFileUtils().isResetting()) {
                 main.lang().getMsg("resetting-error").send(player, true, new String[]{}, new String[]{});
                 return true;
             }
@@ -147,6 +153,10 @@ public class CWRCommand implements CommandExecutor {
             if (confirmation.containsKey(player)) {
                 main.worlds().getWorld(confirmation.get(player)).regenWorld(player);
                 confirmation.remove(player);
+            } else if (regionConfirmation.containsKey(player)) {
+                String[] values = regionConfirmation.get(player).split(" ");
+                main.regionFileUtils().resetRegion(player, values[0], Integer.parseInt(values[1]), Integer.parseInt(values[2]));
+                regionConfirmation.remove(player);
             } else {
                 main.lang().getMsg("confirmation-not-required").send(player, true, new String[]{}, new String[]{});
             }
@@ -192,6 +202,10 @@ public class CWRCommand implements CommandExecutor {
     }
 
     private boolean argsLen4(CommandSender sender, Player player, String[] args) {
+
+        if (args[0].matches("(?i)savemca")) return saveRegion(player, args[1], args[2], args[3]);
+
+        if (args[0].matches("(?i)resetmca")) return resetRegion(player, args[1], args[2], args[3]);
 
         if (args[0].matches("(?i)edit")) {
             // if (!main.langUtils().hasParentPerm(player, "CyberWorldReset.admin")) return true;
@@ -253,6 +267,73 @@ public class CWRCommand implements CommandExecutor {
         }
     }
 
+    private boolean saveRegion(Player player, String worldName, String regionX, String regionZ) {
+        if (noPlayerPerm(player, "admin.region.save")) return true;
+        if (noSetupsExist(player)) return true;
+        if (setupDoesNotExist(player, worldName)) return true;
+        if (main.worlds().isWorldResetting() || main.regionFileUtils().isResetting()) {
+            main.lang().getMsg("resetting-error").send(player, true, new String[]{}, new String[]{});
+            return true;
+        }
+        Integer x = parseRegionCoordinate(player, regionX);
+        Integer z = parseRegionCoordinate(player, regionZ);
+        if (x == null || z == null) return true;
+        main.regionFileUtils().saveRegion(player, worldName, x, z);
+        return true;
+    }
+
+    private boolean resetRegion(Player player, String worldName, String regionX, String regionZ) {
+        if (noPlayerPerm(player, "admin.region.reset")) return true;
+        if (noSetupsExist(player)) return true;
+        if (setupDoesNotExist(player, worldName)) return true;
+        if (main.worlds().isWorldResetting() || main.regionFileUtils().isResetting()) {
+            main.lang().getMsg("resetting-error").send(player, true, new String[]{}, new String[]{});
+            return true;
+        }
+
+        Integer x = parseRegionCoordinate(player, regionX);
+        Integer z = parseRegionCoordinate(player, regionZ);
+        if (x == null || z == null) return true;
+
+        if (main.config().isConfirmationEnabled() && player != null) {
+            if (regionConfirmation.containsKey(player)) {
+                main.lang().getMsg("confirmation-needed").send(player, true, new String[]{"world"}, new String[]{worldName});
+                return true;
+            }
+
+            confirmation.remove(player);
+            regionConfirmation.put(player, worldName + " " + x + " " + z);
+            String time = main.langUtils().formatTime(main.config().getConfirmationSeconds());
+            main.lang().getMsg("confirm-region-reset").send(player, true,
+                    new String[]{"world", "regionX", "regionZ", "file", "time"},
+                    new String[]{worldName, String.valueOf(x), String.valueOf(z), "r." + x + "." + z + ".mca", time});
+
+            (new BukkitRunnable() {
+
+                @Override
+                public void run() {
+                    if (regionConfirmation.containsKey(player)) {
+                        regionConfirmation.remove(player);
+                        main.lang().getMsg("confirmation-expired").send(player, true, new String[]{"world"}, new String[]{worldName});
+                    }
+                }
+
+            }).runTaskLater(main, 20L * main.config().getConfirmationSeconds());
+        } else {
+            main.regionFileUtils().resetRegion(player, worldName, x, z);
+        }
+        return true;
+    }
+
+    private Integer parseRegionCoordinate(Player player, String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception e) {
+            main.lang().getMsg("invalid-command").send(player, true, new String[]{}, new String[]{});
+            return null;
+        }
+    }
+
     private boolean regenWorld(Player player, String worldName) {
         if (noPlayerPerm(player, "admin.reset")) return true;
         if (noSetupsExist(player)) return true;
@@ -266,6 +347,7 @@ public class CWRCommand implements CommandExecutor {
             }
 
             confirmation.put(player, worldName);
+            regionConfirmation.remove(player);
             String time = main.langUtils().formatTime(main.config().getConfirmationSeconds());
             main.lang().getMsg("confirm-regen").send(player, true, new String[]{"world", "time"}, new String[]{worldName, time});
 

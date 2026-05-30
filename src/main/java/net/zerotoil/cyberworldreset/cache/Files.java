@@ -32,6 +32,8 @@ public class Files {
         // back end
         File savedWorlds = new File(main.getDataFolder(),"saved_worlds");
         if (!savedWorlds.exists()) savedWorlds.mkdirs();
+        File savedRegions = new File(main.getDataFolder(),"saved_regions");
+        if (!savedRegions.exists()) savedRegions.mkdirs();
 
         main.logger("&7Loaded &e" + ymls + "&7 files in &a" + (System.currentTimeMillis() - startTime) + "ms&7.");
         main.logger("");
