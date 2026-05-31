@@ -30,6 +30,14 @@ worlds:
             - '0_0'
           time:
             - '****-**-** **:** 15m' # resets r.0.0.mca every 15 minutes
+          warning:
+            enabled: true
+            message: '&cWarning: resetting MCA group {group} ({regions}) in {time}.'
+            time: [300, 60, 5]
+            title:
+              title: 'MCA Reset Warning'
+              sub-title: 'resetting {group} in {time}!'
+              fade: [20, 60, 20]
         daily_spawn_area:
           enabled: false
           regions:
@@ -39,6 +47,14 @@ worlds:
             - '0_0'
           time:
             - '****-**-** 03:00 1d' # resets the four MCA regions touching spawn at 0,0 daily at 3:00 AM
+          warning:
+            enabled: true
+            message: '&cWarning: resetting MCA group {group} ({regions}) in {time}.'
+            time: [1800, 600, 300, 60, 5]
+            title:
+              title: 'MCA Reset Warning'
+              sub-title: 'resetting {group} in {time}!'
+              fade: [20, 60, 20]
       safe-world:
         enabled: false # if disabled, it will kick all players
         world: 'world'

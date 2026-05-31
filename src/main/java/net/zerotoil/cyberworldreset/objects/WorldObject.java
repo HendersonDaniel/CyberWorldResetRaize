@@ -667,6 +667,17 @@ public class WorldObject {
         for (String i : times) timedRegionResets.put("group " + groupName + " " + i, new TimedReset(main, worldName, i, groupName, regions));
     }
 
+    public void loadTimedRegionGroupResets(String groupName, List<RegionCoordinate> regions, List<String> times,
+                                           boolean warningEnabled, List<String> warningMessage, List<Long> warningSeconds,
+                                           String warningTitle, String warningSubtitle, List<Integer> warningTitleFade) {
+        if (!enabled) return;
+        if (regions == null || regions.isEmpty()) return;
+        if (times == null || times.isEmpty()) return;
+        for (String i : times) timedRegionResets.put("group " + groupName + " " + i,
+                new TimedReset(main, worldName, i, groupName, regions, warningEnabled, warningMessage, warningSeconds,
+                        warningTitle, warningSubtitle, warningTitleFade));
+    }
+
     public void sendWarning(String unformatted) {
 
         String time = main.langUtils().formatTime(timedResets.get(unformatted).timeToReset());

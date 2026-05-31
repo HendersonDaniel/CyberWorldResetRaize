@@ -3,11 +3,14 @@ package net.zerotoil.cyberworldreset.objects;
 import net.zerotoil.cyberworldreset.CyberWorldReset;
 import net.zerotoil.cyberworldreset.utilities.RegionFileUtils.RegionCoordinate;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.time.*;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.Month;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -32,6 +35,12 @@ public class TimedReset {
     private long loadDelay;
     private List<RegionCoordinate> regionGroup;
     private String regionGroupName;
+    private boolean regionWarningEnabled;
+    private List<String> regionWarningMessage = new ArrayList<>();
+    private List<Long> regionWarningSeconds = new ArrayList<>();
+    private String regionWarningTitle;
+    private String regionWarningSubtitle;
+    private List<Integer> regionWarningTitleFade = Arrays.asList(20, 60, 20);
 
     public TimedReset(CyberWorldReset main, String world, String time, ArrayList<Long> warningSeconds) {
 
@@ -58,6 +67,30 @@ public class TimedReset {
         loadDelay = 10;
         regionGroupName = groupName;
         regionGroup = regions;
+        try {
+            formatTime(false);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public TimedReset(CyberWorldReset main, String world, String time, String groupName, List<RegionCoordinate> regions,
+                      boolean warningEnabled, List<String> warningMessage, List<Long> warningSeconds,
+                      String warningTitle, String warningSubtitle, List<Integer> warningTitleFade) {
+
+        this.main = main;
+        this.world = world;
+        unformatted = time;
+        loadDelay = 10;
+        regionGroupName = groupName;
+        regionGroup = regions;
+        regionWarningEnabled = warningEnabled;
+        if (warningMessage != null) regionWarningMessage = warningMessage;
+        if (warningSeconds != null) regionWarningSeconds = warningSeconds;
+        regionWarningTitle = warningTitle;
+        regionWarningSubtitle = warningSubtitle;
+        if (warningTitleFade != null && !warningTitleFade.isEmpty()) regionWarningTitleFade = warningTitleFade;
         try {
             formatTime(false);
         } catch (Exception e) {
@@ -185,8 +218,63 @@ public class TimedReset {
                 a++;
             }
         }
+
+        if ((regionGroup != null) && regionWarningEnabled && !regionWarningSeconds.isEmpty()) {
+            warningTimers.clear();
+            int a = 0;
+            for (long i : regionWarningSeconds) {
+                if (intervalSeconds < i) continue;
+                long runIn = timeToReset() - i;
+                if (intervalSeconds == i) runIn = 0;
+                warningTimers.add(new Timer());
+                warningTimers.get(a).schedule((new TimerTask() {
+                    public void run() {
+                        sendRegionWarning();
+                        warningTimers.get(0).cancel();
+                        warningTimers.get(0).purge();
+                    }
+                }), 1000L * runIn);
+                a++;
+            }
+        }
         timer.schedule(new MyTimeTask(), intervalSeconds * 1000);
 
+    }
+
+    private void sendRegionWarning() {
+        String time = main.langUtils().formatTime(timeToReset());
+        String regions = formatRegions();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!player.getWorld().getName().equals(world)) continue;
+            for (String i : regionWarningMessage) {
+                player.sendMessage(main.langUtils().getColor(i
+                        .replace("{world}", world)
+                        .replace("{group}", regionGroupName)
+                        .replace("{regions}", regions)
+                        .replace("{time}", time), true));
+            }
+
+            if (regionWarningTitle == null) continue;
+            String title = main.langUtils().getColor(regionWarningTitle
+                    .replace("{world}", world)
+                    .replace("{group}", regionGroupName)
+                    .replace("{regions}", regions)
+                    .replace("{time}", time), false);
+            String subtitle = "";
+            if (regionWarningSubtitle != null) subtitle = main.langUtils().getColor(regionWarningSubtitle
+                    .replace("{world}", world)
+                    .replace("{group}", regionGroupName)
+                    .replace("{regions}", regions)
+                    .replace("{time}", time), false);
+            main.langUtils().sendTitle(player, title, subtitle, regionWarningTitleFade);
+        }
+    }
+
+    private String formatRegions() {
+        List<String> regions = new ArrayList<>();
+        for (RegionCoordinate region : regionGroup) regions.add(region.getX() + "_" + region.getZ());
+        return String.join(", ", regions);
     }
 
     private class MyTimeTask extends TimerTask {

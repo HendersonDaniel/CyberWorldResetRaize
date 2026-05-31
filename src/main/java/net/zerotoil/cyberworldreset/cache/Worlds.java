@@ -212,7 +212,22 @@ public class Worlds {
             }
 
             List<String> times = config.getStringList(path + "." + groupName + ".time");
-            getWorld(worldName).loadTimedRegionGroupResets(groupName, regions, times);
+            String warningPath = path + "." + groupName + ".warning";
+            boolean warningEnabled = config.getBoolean(warningPath + ".enabled", false);
+            List<String> warningMessage = new ArrayList<>();
+            warningMessage.add("&cWarning: resetting MCA group {group} ({regions}) in {time}.");
+            if (config.isSet(warningPath + ".message"))
+                warningMessage = main.langUtils().convertList(config, warningPath + ".message");
+            List<Long> warningTime = config.getLongList(warningPath + ".time");
+            String warningTitle = null;
+            String warningSubtitle = null;
+            List<Integer> warningTitleFade = null;
+            if (config.isSet(warningPath + ".title.title")) warningTitle = config.getString(warningPath + ".title.title");
+            if (config.isSet(warningPath + ".title.sub-title")) warningSubtitle = config.getString(warningPath + ".title.sub-title");
+            if (config.isSet(warningPath + ".title.fade")) warningTitleFade = config.getIntegerList(warningPath + ".title.fade");
+
+            getWorld(worldName).loadTimedRegionGroupResets(groupName, regions, times, warningEnabled, warningMessage,
+                    warningTime, warningTitle, warningSubtitle, warningTitleFade);
             main.logger("&7Loaded MCA region group timer &e'" + groupName + "' &7for world &e'" + worldName + "'&7.");
         }
     }
