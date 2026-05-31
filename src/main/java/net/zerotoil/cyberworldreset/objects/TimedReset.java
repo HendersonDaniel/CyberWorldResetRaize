@@ -1,6 +1,7 @@
 package net.zerotoil.cyberworldreset.objects;
 
 import net.zerotoil.cyberworldreset.CyberWorldReset;
+import net.zerotoil.cyberworldreset.utilities.RegionFileUtils.RegionCoordinate;
 import org.bukkit.Bukkit;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -29,8 +30,8 @@ public class TimedReset {
 
     private long resetTime;
     private long loadDelay;
-    private Integer regionX;
-    private Integer regionZ;
+    private List<RegionCoordinate> regionGroup;
+    private String regionGroupName;
 
     public TimedReset(CyberWorldReset main, String world, String time, ArrayList<Long> warningSeconds) {
 
@@ -49,14 +50,14 @@ public class TimedReset {
 
     }
 
-    public TimedReset(CyberWorldReset main, String world, String time, int regionX, int regionZ) {
+    public TimedReset(CyberWorldReset main, String world, String time, String groupName, List<RegionCoordinate> regions) {
 
         this.main = main;
         this.world = world;
         unformatted = time;
         loadDelay = 10;
-        this.regionX = regionX;
-        this.regionZ = regionZ;
+        regionGroupName = groupName;
+        regionGroup = regions;
         try {
             formatTime(false);
         } catch (Exception e) {
@@ -162,7 +163,7 @@ public class TimedReset {
 
         resetTime = (intervalSeconds * 1000) + System.currentTimeMillis();
 
-        if ((regionX == null) && (warningSeconds.size() > 0) && main.worlds().getWorld(world).isWarningEnabled()) {
+        if ((regionGroup == null) && (warningSeconds.size() > 0) && main.worlds().getWorld(world).isWarningEnabled()) {
             warningTimers.clear();
             int a = 0;
             for (long i : warningSeconds) {
@@ -197,8 +198,8 @@ public class TimedReset {
 
                 @Override
                 public void run() {
-                    if (regionX == null) main.worlds().getWorld(world).regenWorld(null);
-                    else main.regionFileUtils().resetRegion(null, world, regionX, regionZ);
+                    if (regionGroup != null) main.regionFileUtils().resetRegions(null, world, regionGroup, regionGroupName);
+                    else main.worlds().getWorld(world).regenWorld(null);
                 }
 
             });

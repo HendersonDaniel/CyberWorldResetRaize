@@ -19,16 +19,34 @@ public class RegionFileUtils {
     private static final String[] REGION_FOLDERS = {"region", "entities", "poi"};
 
     private final CyberWorldReset main;
-    private final Set<String> resettingRegions = new HashSet<>();
+    private boolean mcaOperationRunning;
     private final Map<String, List<UUID>> returnPlayers = new HashMap<>();
 
     public RegionFileUtils(CyberWorldReset main) {
         this.main = main;
     }
 
+    public static class RegionCoordinate {
+        private final int x;
+        private final int z;
+
+        public RegionCoordinate(int x, int z) {
+            this.x = x;
+            this.z = z;
+        }
+
+        public int getX() {
+            return x;
+        }
+
+        public int getZ() {
+            return z;
+        }
+    }
+
     public boolean saveRegion(Player sender, String worldName, int regionX, int regionZ) {
-        String key = regionKey(worldName, regionX, regionZ);
-        if (resettingRegions.contains(key)) {
+        String operationKey = regionOperationKey(worldName, null, Collections.singletonList(new RegionCoordinate(regionX, regionZ)));
+        if (mcaOperationRunning) {
             main.lang().getMsg("region-already-resetting").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
             return false;
         }
@@ -45,17 +63,17 @@ public class RegionFileUtils {
         }
 
         WorldObject setup = main.worlds().getWorld(worldName);
-        if (!preparePlayers(sender, setup, world, key)) return false;
+        if (!preparePlayers(sender, setup, world, operationKey)) return false;
 
         main.lang().getMsg("saving-region").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
-        resettingRegions.add(key);
+        mcaOperationRunning = true;
         world.save();
         File worldFolder = world.getWorldFolder();
         World.Environment environment = world.getEnvironment();
         String generator = setup == null ? null : setup.getGenerator();
 
         if (!Bukkit.unloadWorld(world, false)) {
-            finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-save-failed");
+            finishRegionOperationFailure(sender, worldName, Collections.singletonList(new RegionCoordinate(regionX, regionZ)), operationKey, setup, environment, generator, "region-save-failed");
             main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
             return false;
         }
@@ -69,33 +87,43 @@ public class RegionFileUtils {
                 if (savedFiles == 0) FileUtils.deleteQuietly(backupFolder);
                 Bukkit.getScheduler().runTask(main, () -> {
                     if (savedFiles == 0) {
-                        finishRegionOperationCleanup(worldName, key, setup, environment, generator);
+                        finishRegionOperationCleanup(worldName, operationKey, setup, environment, generator);
                         main.lang().getMsg("region-save-empty").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
                     } else {
-                        finishRegionOperationCleanup(worldName, key, setup, environment, generator);
+                        finishRegionOperationCleanup(worldName, operationKey, setup, environment, generator);
                         main.lang().getMsg("region-save-success").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
                     }
                 });
             } catch (IOException e) {
                 e.printStackTrace();
                 Bukkit.getScheduler().runTask(main, () ->
-                        finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-save-failed"));
+                        finishRegionOperationFailure(sender, worldName, Collections.singletonList(new RegionCoordinate(regionX, regionZ)), operationKey, setup, environment, generator, "region-save-failed"));
             }
         });
         return true;
     }
 
     public boolean resetRegion(Player sender, String worldName, int regionX, int regionZ) {
-        String key = regionKey(worldName, regionX, regionZ);
-        if (resettingRegions.contains(key)) {
-            main.lang().getMsg("region-already-resetting").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
+        return resetRegions(sender, worldName, Collections.singletonList(new RegionCoordinate(regionX, regionZ)), null);
+    }
+
+    public boolean resetRegions(Player sender, String worldName, List<RegionCoordinate> regions, String groupName) {
+        if (regions == null || regions.isEmpty()) return false;
+
+        String operationKey = regionOperationKey(worldName, groupName, regions);
+        if (mcaOperationRunning) {
+            main.lang().getMsg("region-already-resetting").send(sender, true, regionPlaceholders(), regionValues(worldName, regions.get(0).getX(), regions.get(0).getZ()));
             return false;
         }
 
-        File latestBackup = getLatestBackup(worldName, regionX, regionZ);
-        if (latestBackup == null) {
-            main.lang().getMsg("region-no-saves").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
-            return false;
+        Map<RegionCoordinate, File> latestBackups = new HashMap<>();
+        for (RegionCoordinate region : regions) {
+            File latestBackup = getLatestBackup(worldName, region.getX(), region.getZ());
+            if (latestBackup == null) {
+                main.lang().getMsg("region-no-saves").send(sender, true, regionPlaceholders(), regionValues(worldName, region.getX(), region.getZ()));
+                return false;
+            }
+            latestBackups.put(region, latestBackup);
         }
 
         World currentWorld = Bukkit.getWorld(worldName);
@@ -110,35 +138,38 @@ public class RegionFileUtils {
         }
 
         WorldObject setup = main.worlds().getWorld(worldName);
-        if (!preparePlayers(sender, setup, currentWorld, key)) return false;
+        if (!preparePlayers(sender, setup, currentWorld, operationKey)) return false;
 
-        resettingRegions.add(key);
+        mcaOperationRunning = true;
         File worldFolder = currentWorld.getWorldFolder();
         World.Environment environment = currentWorld.getEnvironment();
         String generator = setup == null ? null : setup.getGenerator();
         currentWorld.save();
 
         if (!Bukkit.unloadWorld(currentWorld, false)) {
-            finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-reset-failed");
+            finishRegionOperationFailure(sender, worldName, regions, operationKey, setup, environment, generator, "region-reset-failed");
             main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
             return false;
         }
 
         Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
             try {
-                main.logger("&7Restoring MCA backup from &e" + latestBackup.getPath() + "&7.");
-                restoreRegionFiles(worldFolder, latestBackup, regionX, regionZ);
-                Bukkit.getScheduler().runTask(main, () -> finishResetSuccess(sender, worldName, regionX, regionZ, key, setup, environment, generator));
+                for (RegionCoordinate region : regions) {
+                    File latestBackup = latestBackups.get(region);
+                    main.logger("&7Restoring MCA backup from &e" + latestBackup.getPath() + "&7.");
+                    restoreRegionFiles(worldFolder, latestBackup, region.getX(), region.getZ());
+                }
+                Bukkit.getScheduler().runTask(main, () -> finishResetSuccess(sender, worldName, regions, operationKey, setup, environment, generator));
             } catch (IOException e) {
                 e.printStackTrace();
-                Bukkit.getScheduler().runTask(main, () -> finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-reset-failed"));
+                Bukkit.getScheduler().runTask(main, () -> finishRegionOperationFailure(sender, worldName, regions, operationKey, setup, environment, generator, "region-reset-failed"));
             }
         });
         return true;
     }
 
     public boolean isResetting() {
-        return !resettingRegions.isEmpty();
+        return mcaOperationRunning;
     }
 
     private boolean preparePlayers(Player sender, WorldObject setup, World currentWorld, String key) {
@@ -175,33 +206,37 @@ public class RegionFileUtils {
         return true;
     }
 
-    private void finishResetSuccess(Player sender, String worldName, int regionX, int regionZ, String key,
+    private void finishResetSuccess(Player sender, String worldName, List<RegionCoordinate> regions, String operationKey,
                                     WorldObject setup, World.Environment environment, String generator) {
         WorldCreator creator = createWorldCreator(worldName, environment, generator);
         World world = creator.createWorld();
         if (world == null) {
-            finishRegionOperationFailure(sender, worldName, regionX, regionZ, key, setup, environment, generator, "region-reset-failed");
+            finishRegionOperationFailure(sender, worldName, regions, operationKey, setup, environment, generator, "region-reset-failed");
             main.lang().getMsg("world-create-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
             return;
         }
 
         main.onWorldChange().removeClosedWorld(worldName);
         if (!main.onJoin().isServerOpen()) main.onJoin().setServerOpen(true);
-        main.lang().getMsg("region-reset-success").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
-
-        if (setup != null && setup.isSafeWorldEnabled() && setup.getSafeWorldDelay() != -1) {
-            Bukkit.getScheduler().runTaskLater(main, () -> teleportPlayersBack(world, key), 20L * setup.getSafeWorldDelay());
-        } else {
-            returnPlayers.remove(key);
+        for (RegionCoordinate region : regions) {
+            main.lang().getMsg("region-reset-success").send(sender, true, regionPlaceholders(), regionValues(worldName, region.getX(), region.getZ()));
         }
 
-        resettingRegions.remove(key);
+        if (setup != null && setup.isSafeWorldEnabled() && setup.getSafeWorldDelay() != -1) {
+            Bukkit.getScheduler().runTaskLater(main, () -> teleportPlayersBack(world, operationKey), 20L * setup.getSafeWorldDelay());
+        } else {
+            returnPlayers.remove(operationKey);
+        }
+
+        mcaOperationRunning = false;
     }
 
-    private void finishRegionOperationFailure(Player sender, String worldName, int regionX, int regionZ, String key,
+    private void finishRegionOperationFailure(Player sender, String worldName, List<RegionCoordinate> regions, String operationKey,
                                               WorldObject setup, World.Environment environment, String generator, String messageKey) {
-        finishRegionOperationCleanup(worldName, key, setup, environment, generator);
-        main.lang().getMsg(messageKey).send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
+        finishRegionOperationCleanup(worldName, operationKey, setup, environment, generator);
+        for (RegionCoordinate region : regions) {
+            main.lang().getMsg(messageKey).send(sender, true, regionPlaceholders(), regionValues(worldName, region.getX(), region.getZ()));
+        }
     }
 
     private void finishRegionOperationCleanup(String worldName, String key, WorldObject setup,
@@ -217,7 +252,7 @@ public class RegionFileUtils {
         } else {
             returnPlayers.remove(key);
         }
-        resettingRegions.remove(key);
+        mcaOperationRunning = false;
     }
 
     private WorldCreator createWorldCreator(String worldName, World.Environment environment, String generator) {
@@ -302,6 +337,12 @@ public class RegionFileUtils {
     private String regionKey(String worldName, int regionX, int regionZ) {
         if (worldName == null || worldName.equals("")) return regionX + "_" + regionZ;
         return worldName + "_" + regionX + "_" + regionZ;
+    }
+
+    private String regionOperationKey(String worldName, String groupName, List<RegionCoordinate> regions) {
+        if (groupName != null && !groupName.equals("")) return worldName + "_mca_group_" + groupName;
+        RegionCoordinate first = regions.get(0);
+        return regionKey(worldName, first.getX(), first.getZ());
     }
 
     private String[] regionPlaceholders() {

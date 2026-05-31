@@ -5,6 +5,7 @@ import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
 import net.zerotoil.cyberworldreset.CyberWorldReset;
+import net.zerotoil.cyberworldreset.utilities.RegionFileUtils.RegionCoordinate;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
 import org.bukkit.*;
@@ -659,10 +660,11 @@ public class WorldObject {
         for (String i : time) timedResets.put(i, new TimedReset(main, worldName, i, warningTime));
     }
 
-    public void loadTimedRegionResets(String regionKey, int regionX, int regionZ, List<String> times) {
+    public void loadTimedRegionGroupResets(String groupName, List<RegionCoordinate> regions, List<String> times) {
         if (!enabled) return;
+        if (regions == null || regions.isEmpty()) return;
         if (times == null || times.isEmpty()) return;
-        for (String i : times) timedRegionResets.put(regionKey + " " + i, new TimedReset(main, worldName, i, regionX, regionZ));
+        for (String i : times) timedRegionResets.put("group " + groupName + " " + i, new TimedReset(main, worldName, i, groupName, regions));
     }
 
     public void sendWarning(String unformatted) {
