@@ -178,6 +178,7 @@ public class Worlds {
 
                 worlds.put(worldName, worldObject);
                 getWorld(worldName).loadTimedResets();
+                loadTimedRegionResets(worldName);
 
                 main.logger("&7Loaded world &e'" + worldName + "'&7.");
 
@@ -188,6 +189,32 @@ public class Worlds {
 
         }
 
+    }
+
+    private void loadTimedRegionResets(String worldName) {
+        String path = "worlds." + worldName + ".settings.mca-regions";
+        ConfigurationSection regions = config.getConfigurationSection(path);
+        if (regions == null) return;
+
+        for (String regionKey : regions.getKeys(false)) {
+            if (!config.getBoolean(path + "." + regionKey + ".enabled", false)) continue;
+
+            String[] split = regionKey.split("_");
+            if (split.length != 2) {
+                main.logger("&cInvalid MCA region key '" + regionKey + "' for world '" + worldName + "'. Use <regionX>_<regionZ>.");
+                continue;
+            }
+
+            try {
+                int regionX = Integer.parseInt(split[0]);
+                int regionZ = Integer.parseInt(split[1]);
+                List<String> times = config.getStringList(path + "." + regionKey + ".time");
+                getWorld(worldName).loadTimedRegionResets(regionKey, regionX, regionZ, times);
+                main.logger("&7Loaded MCA region timer &e'" + regionKey + "' &7for world &e'" + worldName + "'&7.");
+            } catch (NumberFormatException e) {
+                main.logger("&cInvalid MCA region key '" + regionKey + "' for world '" + worldName + "'. Use numeric region coordinates.");
+            }
+        }
     }
 
     public void createWorld(String worldName, Player sender) {
@@ -201,6 +228,7 @@ public class Worlds {
         cS.set(s + "time", new String[0]);
         cS.set(s + "message", "World {world} has been reset!");
         cS.set(s + "seed", "DEFAULT");
+        cS.set(s + "mca-regions", new HashMap<>());
         cS.set(safe + "enabled", false);
         cS.set(safe + "world", "");
         cS.set(safe + "delay", 5);

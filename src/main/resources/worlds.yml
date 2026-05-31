@@ -23,6 +23,12 @@ worlds:
         # Add it inside bukkit.yml and reboot before adding it here.
         # Set the generator here- typically the name of the plugin. Please
         # review the WIKI on their side. DEFAULT for the same generator.
+      mca-regions:
+        '0_0':
+          enabled: false
+          time:
+            - '****-**-** **:** 15m' # resets r.0.0.mca every 15 minutes
+            - '****-**-** **:00 2h' # resets r.0.0.mca every 2 hours at xx:00
       safe-world:
         enabled: false # if disabled, it will kick all players
         world: 'world'

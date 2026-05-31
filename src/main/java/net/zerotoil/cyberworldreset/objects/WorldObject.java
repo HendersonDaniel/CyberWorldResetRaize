@@ -1,8 +1,6 @@
 package net.zerotoil.cyberworldreset.objects;
 
 import com.Zrips.CMI.CMI;
-import com.onarandombox.MultiverseNetherPortals.MultiverseNetherPortals;
-import com.onarandombox.MultiversePortals.MultiversePortals;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
@@ -16,7 +14,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.*;
@@ -58,6 +57,7 @@ public class WorldObject {
 
     // timed resets module
     private final HashMap<String, TimedReset> timedResets = new HashMap<>();
+    private final HashMap<String, TimedReset> timedRegionResets = new HashMap<>();
 
     // teleport player module
     private final  List<Player> tpPlayers = new ArrayList<>();
@@ -659,6 +659,12 @@ public class WorldObject {
         for (String i : time) timedResets.put(i, new TimedReset(main, worldName, i, warningTime));
     }
 
+    public void loadTimedRegionResets(String regionKey, int regionX, int regionZ, List<String> times) {
+        if (!enabled) return;
+        if (times == null || times.isEmpty()) return;
+        for (String i : times) timedRegionResets.put(regionKey + " " + i, new TimedReset(main, worldName, i, regionX, regionZ));
+    }
+
     public void sendWarning(String unformatted) {
 
         String time = main.langUtils().formatTime(timedResets.get(unformatted).timeToReset());
@@ -751,8 +757,8 @@ public class WorldObject {
     }
 
     public void cancelTimers() {
-        if (timedResets.isEmpty()) return;
         for (TimedReset timedReset : timedResets.values()) timedReset.cancelAllTimers();
+        for (TimedReset timedReset : timedRegionResets.values()) timedReset.cancelAllTimers();
     }
 
     public World getWorld() {

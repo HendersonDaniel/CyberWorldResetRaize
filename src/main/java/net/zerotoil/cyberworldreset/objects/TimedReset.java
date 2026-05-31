@@ -29,6 +29,8 @@ public class TimedReset {
 
     private long resetTime;
     private long loadDelay;
+    private Integer regionX;
+    private Integer regionZ;
 
     public TimedReset(CyberWorldReset main, String world, String time, ArrayList<Long> warningSeconds) {
 
@@ -39,6 +41,22 @@ public class TimedReset {
         if (warningSeconds != null) {
             this.warningSeconds = warningSeconds;
         }
+        try {
+            formatTime(false);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public TimedReset(CyberWorldReset main, String world, String time, int regionX, int regionZ) {
+
+        this.main = main;
+        this.world = world;
+        unformatted = time;
+        loadDelay = 10;
+        this.regionX = regionX;
+        this.regionZ = regionZ;
         try {
             formatTime(false);
         } catch (Exception e) {
@@ -144,7 +162,7 @@ public class TimedReset {
 
         resetTime = (intervalSeconds * 1000) + System.currentTimeMillis();
 
-        if ((warningSeconds.size() > 0) && main.worlds().getWorld(world).isWarningEnabled()) {
+        if ((regionX == null) && (warningSeconds.size() > 0) && main.worlds().getWorld(world).isWarningEnabled()) {
             warningTimers.clear();
             int a = 0;
             for (long i : warningSeconds) {
@@ -179,7 +197,8 @@ public class TimedReset {
 
                 @Override
                 public void run() {
-                    main.worlds().getWorld(world).regenWorld(null);
+                    if (regionX == null) main.worlds().getWorld(world).regenWorld(null);
+                    else main.regionFileUtils().resetRegion(null, world, regionX, regionZ);
                 }
 
             });
