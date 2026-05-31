@@ -2,11 +2,13 @@ package net.zerotoil.cyberworldreset.commands;
 
 import net.zerotoil.cyberworldreset.CyberWorldReset;
 import net.zerotoil.cyberworldreset.objects.WorldObject;
+import net.zerotoil.cyberworldreset.utilities.RegionFileUtils.RegionCoordinate;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -23,7 +25,7 @@ public class CWRCommand implements CommandExecutor {
     public CWRCommand(CyberWorldReset main) {
         this.main = main;
         main.getCommand("cwr").setExecutor(this);
-        consoleCmds = Arrays.asList("about", "reload", "regen", "reset", "savemca", "resetmca");
+        consoleCmds = Arrays.asList("about", "reload", "regen", "reset", "savemca", "resetmca", "resetregion");
     }
 
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
@@ -51,6 +53,8 @@ public class CWRCommand implements CommandExecutor {
         if (args.length == 1) return argsLen1(sender, player, args);
 
         if (args.length == 2) return argsLen2(sender, player, args);
+
+        if (args.length == 3 && args[0].matches("(?i)resetregion")) return resetRegionGroup(player, args[1], args[2]);
 
         if (args.length > 3 && args[0].matches("(?i)edit")) {
             if (args[2].matches("(?i)addTimer")) {
@@ -109,6 +113,7 @@ public class CWRCommand implements CommandExecutor {
         if (!consoleCmds.contains(args[0].toLowerCase())) return false;
         if (args[0].matches("(?i)regen|regenerate|reset")) return args.length == 2;
         if (args[0].matches("(?i)savemca|resetmca")) return args.length == 4;
+        if (args[0].matches("(?i)resetregion")) return args.length == 3;
         return args.length == 1;
     }
 
@@ -155,7 +160,11 @@ public class CWRCommand implements CommandExecutor {
                 confirmation.remove(player);
             } else if (regionConfirmation.containsKey(player)) {
                 String[] values = regionConfirmation.get(player).split(" ");
-                main.regionFileUtils().resetRegion(player, values[0], Integer.parseInt(values[1]), Integer.parseInt(values[2]));
+                if (values[0].equalsIgnoreCase("group")) {
+                    resetRegionGroupNow(player, values[1], values[2]);
+                } else {
+                    main.regionFileUtils().resetRegion(player, values[0], Integer.parseInt(values[1]), Integer.parseInt(values[2]));
+                }
                 regionConfirmation.remove(player);
             } else {
                 main.lang().getMsg("confirmation-not-required").send(player, true, new String[]{}, new String[]{});
@@ -283,7 +292,7 @@ public class CWRCommand implements CommandExecutor {
     }
 
     private boolean resetRegion(Player player, String worldName, String regionX, String regionZ) {
-        if (noPlayerPerm(player, "admin.region.reset")) return true;
+        if (noPlayerPerm(player, "admin.reset")) return true;
         if (noSetupsExist(player)) return true;
         if (setupDoesNotExist(player, worldName)) return true;
         if (main.worlds().isWorldResetting() || main.regionFileUtils().isResetting()) {
@@ -323,6 +332,76 @@ public class CWRCommand implements CommandExecutor {
             main.regionFileUtils().resetRegion(player, worldName, x, z);
         }
         return true;
+    }
+
+    private boolean resetRegionGroup(Player player, String worldName, String groupName) {
+        if (noPlayerPerm(player, "admin.reset")) return true;
+        if (noSetupsExist(player)) return true;
+        if (setupDoesNotExist(player, worldName)) return true;
+        if (main.worlds().isWorldResetting() || main.regionFileUtils().isResetting()) {
+            main.lang().getMsg("resetting-error").send(player, true, new String[]{}, new String[]{});
+            return true;
+        }
+        if (getRegionGroup(worldName, groupName) == null) {
+            main.lang().getMsg("invalid-command").send(player, true, new String[]{}, new String[]{});
+            return true;
+        }
+
+        if (main.config().isConfirmationEnabled() && player != null) {
+            if (regionConfirmation.containsKey(player)) {
+                main.lang().getMsg("confirmation-needed").send(player, true, new String[]{"world"}, new String[]{worldName});
+                return true;
+            }
+
+            confirmation.remove(player);
+            regionConfirmation.put(player, "group " + worldName + " " + groupName);
+            String time = main.langUtils().formatTime(main.config().getConfirmationSeconds());
+            main.lang().getMsg("confirm-region-reset").send(player, true,
+                    new String[]{"world", "regionX", "regionZ", "file", "time"},
+                    new String[]{worldName, groupName, "", groupName, time});
+
+            (new BukkitRunnable() {
+
+                @Override
+                public void run() {
+                    if (regionConfirmation.containsKey(player)) {
+                        regionConfirmation.remove(player);
+                        main.lang().getMsg("confirmation-expired").send(player, true, new String[]{"world"}, new String[]{worldName});
+                    }
+                }
+
+            }).runTaskLater(main, 20L * main.config().getConfirmationSeconds());
+        } else {
+            resetRegionGroupNow(player, worldName, groupName);
+        }
+        return true;
+    }
+
+    private void resetRegionGroupNow(Player player, String worldName, String groupName) {
+        List<RegionCoordinate> regions = getRegionGroup(worldName, groupName);
+        if (regions == null || regions.isEmpty()) {
+            main.lang().getMsg("invalid-command").send(player, true, new String[]{}, new String[]{});
+            return;
+        }
+        main.regionFileUtils().resetRegions(player, worldName, regions, groupName);
+    }
+
+    private List<RegionCoordinate> getRegionGroup(String worldName, String groupName) {
+        String path = "worlds." + worldName + ".settings.mca-region-groups." + groupName;
+        ConfigurationSection section = main.files().getConfig("worlds").getConfigurationSection(path);
+        if (section == null) return null;
+
+        List<RegionCoordinate> regions = new ArrayList<>();
+        for (String region : section.getStringList("regions")) {
+            String[] split = region.split("_");
+            if (split.length != 2) return null;
+            try {
+                regions.add(new RegionCoordinate(Integer.parseInt(split[0]), Integer.parseInt(split[1])));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return regions;
     }
 
     private Integer parseRegionCoordinate(Player player, String value) {

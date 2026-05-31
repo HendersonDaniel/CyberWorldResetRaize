@@ -48,8 +48,9 @@ public class CWRTabComplete implements TabCompleter {
         if (player.hasPermission(aPrefix + "region.save")) {
             args0.add("savemca");
         }
-        if (player.hasPermission(aPrefix + "region.reset")) {
+        if (player.hasPermission(aPrefix + "reset")) {
             args0.add("resetmca");
+            args0.add("resetregion");
         }
         if (main.langUtils().hasParentPerm(player, aPrefix + "edit")) args0.add("edit");
         if (player.hasPermission(aPrefix + "info")) args0.add("info");
@@ -77,7 +78,7 @@ public class CWRTabComplete implements TabCompleter {
 
             if (cmdReq(args[0], args0, "reset") || cmdReq(args[0], args0, "save") || cmdReq(args[0], args0, "edit")
                     || cmdReq(args[0], args0, "info") || cmdReq(args[0], args0, "regen") || cmdReq(args[0], args0, "savemca")
-                    || cmdReq(args[0], args0, "resetmca")) {
+                    || cmdReq(args[0], args0, "resetmca") || cmdReq(args[0], args0, "resetregion")) {
                 args1.addAll(main.worlds().getWorlds().keySet());
             }
 
@@ -85,6 +86,17 @@ public class CWRTabComplete implements TabCompleter {
             Collections.sort(args1Comp);
             return args1Comp;
 
+        }
+
+        if (args.length == 3 && args[0].matches("(?i)resetregion")) {
+            List<String> args2 = new ArrayList<>();
+            List<String> args2Comp = new ArrayList<>();
+            String path = "worlds." + args[1] + ".settings.mca-region-groups";
+            if (main.files().getConfig("worlds").getConfigurationSection(path) != null)
+                args2.addAll(main.files().getConfig("worlds").getConfigurationSection(path).getKeys(false));
+            StringUtil.copyPartialMatches(args[2], args2, args2Comp);
+            Collections.sort(args2Comp);
+            return args2Comp;
         }
 
         if (args.length == 3 && args[0].matches("(?i)savemca|resetmca")) {
