@@ -69,20 +69,14 @@ public class RegionFileUtils {
         WorldObject setup = main.worlds().getWorld(worldName);
         if (!preparePlayers(sender, setup, world, operationKey)) return false;
 
-        main.lang().getMsg("saving-region").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
         mcaOperationRunning = true;
+        main.lang().getMsg("saving-region").send(sender, true, regionPlaceholders(), regionValues(worldName, regionX, regionZ));
         world.save();
         File worldFolder = world.getWorldFolder();
         World.Environment environment = world.getEnvironment();
         String generator = setup == null ? null : setup.getGenerator();
 
-        if (!Bukkit.unloadWorld(world, false)) {
-            finishRegionOperationFailure(sender, worldName, Collections.singletonList(new RegionCoordinate(regionX, regionZ)), operationKey, setup, environment, generator, "region-save-failed");
-            main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
-            return false;
-        }
-
-        Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
+        unloadWorldWhenEmpty(sender, world, worldName, Collections.singletonList(new RegionCoordinate(regionX, regionZ)), operationKey, setup, environment, generator, "region-save-failed", () -> Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
             File backupFolder = null;
             try {
                 backupFolder = createBackupFolder(worldName, regionX, regionZ);
@@ -103,7 +97,7 @@ public class RegionFileUtils {
                 Bukkit.getScheduler().runTask(main, () ->
                         finishRegionOperationFailure(sender, worldName, Collections.singletonList(new RegionCoordinate(regionX, regionZ)), operationKey, setup, environment, generator, "region-save-failed"));
             }
-        });
+        }));
         return true;
     }
 
@@ -150,13 +144,7 @@ public class RegionFileUtils {
         String generator = setup == null ? null : setup.getGenerator();
         currentWorld.save();
 
-        if (!Bukkit.unloadWorld(currentWorld, false)) {
-            finishRegionOperationFailure(sender, worldName, regions, operationKey, setup, environment, generator, "region-reset-failed");
-            main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
-            return false;
-        }
-
-        Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
+        unloadWorldWhenEmpty(sender, currentWorld, worldName, regions, operationKey, setup, environment, generator, "region-reset-failed", () -> Bukkit.getScheduler().runTaskAsynchronously(main, () -> {
             try {
                 for (RegionCoordinate region : regions) {
                     File latestBackup = latestBackups.get(region);
@@ -168,7 +156,7 @@ public class RegionFileUtils {
                 e.printStackTrace();
                 Bukkit.getScheduler().runTask(main, () -> finishRegionOperationFailure(sender, worldName, regions, operationKey, setup, environment, generator, "region-reset-failed"));
             }
-        });
+        }));
         return true;
     }
 
@@ -208,6 +196,31 @@ public class RegionFileUtils {
         }
         main.onWorldChange().addClosedWorld(currentWorld.getName());
         return true;
+    }
+
+    private void unloadWorldWhenEmpty(Player sender, World world, String worldName, List<RegionCoordinate> regions, String operationKey,
+                                      WorldObject setup, World.Environment environment, String generator, String failureMessageKey,
+                                      Runnable afterUnload) {
+        unloadWorldWhenEmpty(sender, world, worldName, regions, operationKey, setup, environment, generator, failureMessageKey, afterUnload, 0);
+    }
+
+    private void unloadWorldWhenEmpty(Player sender, World world, String worldName, List<RegionCoordinate> regions, String operationKey,
+                                      WorldObject setup, World.Environment environment, String generator, String failureMessageKey,
+                                      Runnable afterUnload, int attempts) {
+        Bukkit.getScheduler().runTaskLater(main, () -> {
+            if (!world.getPlayers().isEmpty() && attempts < 3) {
+                unloadWorldWhenEmpty(sender, world, worldName, regions, operationKey, setup, environment, generator, failureMessageKey, afterUnload, attempts + 1);
+                return;
+            }
+
+            if (!world.getPlayers().isEmpty() || !Bukkit.unloadWorld(world, false)) {
+                finishRegionOperationFailure(sender, worldName, regions, operationKey, setup, environment, generator, failureMessageKey);
+                main.lang().getMsg("unload-failed").send(sender, true, new String[]{"world"}, new String[]{worldName});
+                return;
+            }
+
+            afterUnload.run();
+        }, 60L);
     }
 
     private void finishResetSuccess(Player sender, String worldName, List<RegionCoordinate> regions, String operationKey,
