@@ -11,6 +11,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 public class OnJoin implements Listener {
 
@@ -38,6 +39,8 @@ public class OnJoin implements Listener {
     @EventHandler (priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (main.regionFileUtils().restorePendingRegionReturn(player)) return;
+
         String worldName = player.getWorld().getName();
         if (!main.worlds().getWorlds().containsKey(worldName)) return;
 
@@ -62,6 +65,11 @@ public class OnJoin implements Listener {
 
         }
 
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        main.regionFileUtils().recordLogout(event.getPlayer());
     }
 
     public boolean isServerOpen() {

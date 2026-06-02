@@ -4,12 +4,16 @@ import net.zerotoil.cyberworldreset.CyberWorldReset;
 import net.zerotoil.cyberworldreset.objects.WorldObject;
 import org.apache.commons.io.FileUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -221,6 +225,7 @@ public class RegionFileUtils {
         for (RegionCoordinate region : regions) {
             main.lang().getMsg("region-reset-success").send(sender, true, regionPlaceholders(), regionValues(worldName, region.getX(), region.getZ()));
         }
+        saveSpawnRegionResetTime(worldName, regions);
 
         if (setup != null && setup.isSafeWorldEnabled() && setup.getSafeWorldDelay() != -1) {
             Bukkit.getScheduler().runTaskLater(main, () -> teleportPlayersBack(world, operationKey), 20L * setup.getSafeWorldDelay());
@@ -277,6 +282,94 @@ public class RegionFileUtils {
             main.lang().getMsg("teleporting-back").send(player, true, new String[]{"world", "safeWorld"}, new String[]{world.getName(), ""});
             player.teleport(world.getSpawnLocation());
             main.lang().getMsg("teleported-back").send(player, true, new String[]{"world", "safeWorld"}, new String[]{world.getName(), ""});
+        }
+    }
+
+    private File pendingReturnFile() {
+        return new File(main.getDataFolder(), "pending_region_returns.yml");
+    }
+
+    public void recordLogout(Player player) {
+        Location location = player.getLocation();
+        World world = location.getWorld();
+        if (world == null) return;
+
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(pendingReturnFile());
+        String path = "last-logouts." + player.getUniqueId() + ".";
+        config.set(path + "world", world.getName());
+        config.set(path + "x", location.getX());
+        config.set(path + "z", location.getZ());
+        config.set(path + "time", System.currentTimeMillis());
+        try {
+            config.save(pendingReturnFile());
+        } catch (IOException e) {
+            main.logger("&cFailed to save logout region for " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    public boolean restorePendingRegionReturn(Player player) {
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(pendingReturnFile());
+        String logoutPath = "last-logouts." + player.getUniqueId() + ".";
+        String worldName = config.getString(logoutPath + "world");
+        if (worldName == null) return false;
+
+        int logoutRegionX = Math.floorDiv((int) Math.floor(config.getDouble(logoutPath + "x")), 512);
+        int logoutRegionZ = Math.floorDiv((int) Math.floor(config.getDouble(logoutPath + "z")), 512);
+        if (!isSpawnRegion(logoutRegionX, logoutRegionZ)) return false;
+
+        long resetAt = config.getLong("spawn-region-reset-times." + worldName, 0L);
+        if (resetAt == 0L || config.getLong(logoutPath + "time") > resetAt) return false;
+
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) return false;
+
+        main.lang().getMsg("teleporting-back").send(player, true,
+                new String[]{"world", "safeWorld"}, new String[]{world.getName(), ""});
+        player.teleport(world.getSpawnLocation());
+        giveSpawnProtection(player);
+        config.set("last-logouts." + player.getUniqueId(), null);
+        try {
+            config.save(pendingReturnFile());
+        } catch (IOException e) {
+            main.logger("&cFailed to clear logout region for " + player.getName() + ": " + e.getMessage());
+        }
+        main.lang().getMsg("teleported-back").send(player, true,
+                new String[]{"world", "safeWorld"}, new String[]{world.getName(), ""});
+        return true;
+    }
+
+    private void saveSpawnRegionResetTime(String worldName, List<RegionCoordinate> regions) {
+        boolean resetsSpawnRegion = false;
+        for (RegionCoordinate region : regions) {
+            if (isSpawnRegion(region.getX(), region.getZ())) {
+                resetsSpawnRegion = true;
+                break;
+            }
+        }
+        if (!resetsSpawnRegion) return;
+
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(pendingReturnFile());
+        config.set("spawn-region-reset-times." + worldName, System.currentTimeMillis());
+        try {
+            config.save(pendingReturnFile());
+        } catch (IOException e) {
+            main.logger("&cFailed to save spawn region reset time for " + worldName + ": " + e.getMessage());
+        }
+    }
+
+    private boolean isSpawnRegion(int regionX, int regionZ) {
+        return (regionX == 0 || regionX == -1) && (regionZ == 0 || regionZ == -1);
+    }
+
+    private void giveSpawnProtection(Player player) {
+        Plugin spawnPlugin = Bukkit.getPluginManager().getPlugin("SpawnPlugin");
+        if (spawnPlugin == null || !spawnPlugin.isEnabled()) return;
+
+        try {
+            Method method = spawnPlugin.getClass().getMethod("giveProtection", UUID.class);
+            method.invoke(spawnPlugin, player.getUniqueId());
+        } catch (Exception e) {
+            main.logger("&cFailed to give SpawnPlugin protection to " + player.getName() + ": " + e.getMessage());
         }
     }
 
